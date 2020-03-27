@@ -95,6 +95,7 @@ public class ReactorNettyRequestUpgradeStrategy implements RequestUpgradeStrateg
 
 
 	@Override
+	@SuppressWarnings("deprecation")
 	public Mono<Void> upgrade(ServerWebExchange exchange, WebSocketHandler handler,
 			@Nullable String subProtocol, Supplier<HandshakeInfo> handshakeInfoFactory) {
 
@@ -103,14 +104,19 @@ public class ReactorNettyRequestUpgradeStrategy implements RequestUpgradeStrateg
 		HandshakeInfo handshakeInfo = handshakeInfoFactory.get();
 		NettyDataBufferFactory bufferFactory = (NettyDataBufferFactory) response.bufferFactory();
 
-		return reactorResponse.sendWebsocket(subProtocol, this.maxFramePayloadLength, this.handlePing,
-				(in, out) -> {
-					ReactorNettyWebSocketSession session =
-							new ReactorNettyWebSocketSession(
-									in, out, handshakeInfo, bufferFactory, this.maxFramePayloadLength);
-					URI uri = exchange.getRequest().getURI();
-					return handler.handle(session).checkpoint(uri + " [ReactorNettyRequestUpgradeStrategy]");
-				});
+		// Trigger WebFlux preCommit actions and upgrade
+		return response.setComplete()
+				.then(Mono.defer(() -> reactorResponse.sendWebsocket(
+						subProtocol,
+						this.maxFramePayloadLength,
+						this.handlePing,
+						(in, out) -> {
+							ReactorNettyWebSocketSession session =
+									new ReactorNettyWebSocketSession(
+											in, out, handshakeInfo, bufferFactory, this.maxFramePayloadLength);
+							URI uri = exchange.getRequest().getURI();
+							return handler.handle(session).checkpoint(uri + " [ReactorNettyRequestUpgradeStrategy]");
+						})));
 	}
 
 	private static HttpServerResponse getNativeResponse(ServerHttpResponse response) {
